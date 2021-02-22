@@ -8,7 +8,7 @@
 
 #include "Helper.h"
 #include "CImageBasis.h"
-
+#include <iostream>
 
 #define BOARD_ESP32CAM_AITHINKER
 
@@ -103,7 +103,7 @@ typedef struct {
 #define LEDC_LS_CH2_CHANNEL    LEDC_CHANNEL_2
 #define LEDC_LS_TIMER          LEDC_TIMER_1
 #define LEDC_LS_MODE           LEDC_LOW_SPEED_MODE
-#define LEDC_TEST_DUTY         (4000)
+#define LEDC_TEST_DUTY         (200)
 
 void test(){
     ledc_channel_config_t ledc_channel = { };
@@ -279,45 +279,72 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
 
 esp_err_t CCamera::CaptureToFile(std::string nm, int delay)
 {
+//    nm =  "/sdcard/josef_zw.bmp";
     string ftype;
-
-     LEDOnOff(true);              // Abgeschaltet, um Strom zu sparen !!!!!!
-
+ 
+    // PREPARE LEDC
+    /*
+     * Prepare and set configuration of timers
+     * that will be used by LED Controller
+     */
+    ledc_timer_config_t ledc_timer = {};
+    ledc_timer.speed_mode = LEDC_LS_MODE;           // timer mode
+    ledc_timer.duty_resolution = LEDC_TIMER_13_BIT;    // resolution of PWM duty
+    ledc_timer.freq_hz = (uint32_t)5000U;              // frequency of PWM signal     
+    ledc_timer.timer_num = LEDC_LS_TIMER;               // timer index
+    ledc_timer.clk_cfg = LEDC_AUTO_CLK;                // Auto select the source clock
+ 
+ 
+    // Set configuration of timer0 for high speed channels
+    ledc_timer_config(&ledc_timer);
+ 
+    ledc_channel_config_t ledc_channel = { };
+ 
+    ledc_channel.channel = LEDC_LS_CH2_CHANNEL;
+    ledc_channel.duty       = 0;
+    ledc_channel.gpio_num   = FLASH_GPIO;
+    ledc_channel.speed_mode = LEDC_LS_MODE;
+    ledc_channel.hpoint     = 0;
+    ledc_channel.timer_sel  = LEDC_LS_TIMER;
+ 
+    // Initialize fade service.
+    ledc_fade_func_install(0);
+ 
+    // Initialize fade service.
+    ledc_fade_func_install(0);
+ 
+    ESP_LOGE(TAGCAMERACLASS, "LUUUUUUZ");
+ 
     if (delay > 0) 
     {
-        LightOnOff(true);
+        //LightOnOff(true);
+        printf("Enciendo");
+        ledc_channel_config(&ledc_channel);
+        ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, LEDC_TEST_DUTY);
+        ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
         const TickType_t xDelay = delay / portTICK_PERIOD_MS;
         vTaskDelay( xDelay );
     }
-
+ 
+    ledc_set_duty(LEDC_LS_MODE,LEDC_LS_CH2_CHANNEL, 0);
+    ledc_update_duty(LEDC_LS_MODE,LEDC_LS_CH2_CHANNEL);
+ 
     camera_fb_t * fb = esp_camera_fb_get();
     if (!fb) {
         ESP_LOGE(TAGCAMERACLASS, "Camera Capture Failed");
-        LEDOnOff(false);
         return ESP_FAIL;
     }
-    LEDOnOff(false);    
-
-#ifdef DEBUG_DETAIL_ON    
     printf("w %d, h %d, size %d\n", fb->width, fb->height, fb->len);
-#endif
-
+ 
     nm = FormatFileName(nm);
-
-#ifdef DEBUG_DETAIL_ON
     printf("Save Camera to : %s\n", nm.c_str());
-#endif
-
     ftype = toUpper(getFileType(nm));
-
-#ifdef DEBUG_DETAIL_ON
     printf("Filetype: %s\n", ftype.c_str());
-#endif
-
+ 
     uint8_t * buf = NULL;
     size_t buf_len = 0;   
     bool converted = false; 
-
+ 
     if (ftype.compare("BMP") == 0)
     {
         frame2bmp(fb, &buf, &buf_len);
@@ -336,8 +363,8 @@ esp_err_t CCamera::CaptureToFile(std::string nm, int delay)
             buf = fb->buf;
         }
     }
-
-    FILE * fp = OpenFileAndWait(nm.c_str(), "wb");
+ 
+    FILE * fp = fopen(nm.c_str(), "wb");
     if (fp == NULL)  /* If an error occurs during the file creation */
     {
         fprintf(stderr, "fopen() failed for '%s'\n", nm.c_str());
@@ -349,14 +376,19 @@ esp_err_t CCamera::CaptureToFile(std::string nm, int delay)
     }    
     if (converted)
         free(buf);
-
+ 
     esp_camera_fb_return(fb);
-
+ 
     if (delay > 0) 
     {
-        LightOnOff(false);
+        printf("Apago");
+        ledc_channel_config(&ledc_channel);
+        ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0);
+        ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        //LightOnOff(false);
     }
-
+    
     return ESP_OK;    
 }
 
